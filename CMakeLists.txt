@@ -7,14 +7,27 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules")
 include(GNUInstallDirs)
 set(ENABLE_HEAVY OFF CACHE BOOL "Enable heavy test")
 set(ENABLE_MULTI_MSG OFF CACHE BOOL "Enable multiple sendings (x10)")
+set(ENABLE_PARALLLEL OFF CACHE BOOL "Enable parallel communications")
 set(USE_ICOMM OFF CACHE BOOL "Enable non-blocking MPI communication")
 set(USE_ISCOMM OFF CACHE BOOL "Enable non-blocking synchronous MPI sending")
 set(CUDA_CAPABILITY "6.0" CACHE BOOL "Cuda capability: default 6.0")
+
+file(GLOB SRC
+    "src/*.h"
+    "src/*.cpp"
+    "src/*.cu"
+    )
+#add_executable(gpudirect_test ${SRC})
+add_executable(gpudirect_test src/gpudirect_bench.cu)
+add_executable(cpu_test src/cpu_bench.cpp)
+#add_executable(cpu_test src/gpudirect_bench.cu)
 
 find_package(OpenMP)
 if(OPENMP_FOUND)
   add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:${OpenMP_CXX_FLAGS}>")
   add_compile_options("$<$<COMPILE_LANGUAGE:C>:${OpenMP_CXX_FLAGS}>")
+  target_link_libraries(gpudirect_test PUBLIC OpenMP::OpenMP_CXX)
+  target_link_libraries(cpu_test PUBLIC OpenMP::OpenMP_CXX)
 endif()
 
 find_package(CUDA REQUIRED)
@@ -25,14 +38,6 @@ foreach(GENCODE ${GENCODES})
   add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:-gencode=arch=compute_${GENCODE},code=sm_${GENCODE}>")
 endforeach()
 
-file(GLOB SRC
-    "src/*.h"
-    "src/*.cpp"
-    "src/*.cu"
-    )
-#add_executable(gpudirect_test ${SRC})
-add_executable(gpudirect_test src/gpudirect_bench.cu)
-add_executable(cpu_test src/cpu_bench.cpp)
 target_include_directories(gpudirect_test
                            PUBLIC
                            ${CUDA_INCLUDE_DIRS}
@@ -57,6 +62,10 @@ endif()
 
 if (ENABLE_MULTI_MSG)
   add_compile_definitions(ENABLE_MULTI_MSG)
+endif()
+
+if (ENABLE_PARALLLEL)
+  add_compile_definitions(PARALLEL_MSG_MODE)
 endif()
 
 remove_definitions(-fexceptions)
