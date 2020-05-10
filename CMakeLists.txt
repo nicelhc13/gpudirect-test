@@ -19,7 +19,7 @@ file(GLOB SRC
     )
 #add_executable(gpudirect_test ${SRC})
 add_executable(gpudirect_test src/gpudirect_bench.cu)
-add_executable(cpu_test src/cpu_bench.cpp)
+add_executable(cpu_test src/cpu_bench.cu)
 #add_executable(cpu_test src/gpudirect_bench.cu)
 
 find_package(OpenMP)
