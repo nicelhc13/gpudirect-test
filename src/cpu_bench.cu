@@ -22,6 +22,21 @@
 #define MSG_SIZE   100     //! 25xINT
 #endif
 
+__global__ void verifyGPUBuffers(int *send_buffer,
+                                 int *reduce) {
+  for (int i = 0; i < MSG_SIZE; i++) {
+    if (send_buffer[i] != i) {
+      printf("%d is failed to verified; %d\n", i, send_buffer[i]);
+      *reduce += 1;
+      break;
+    }
+  }
+
+  if (*reduce > 0) {
+    printf("verifying failed\n");
+  }
+}
+
 void initializeBuffers(int *send_buffer) {
   for (int i = 0; i < MSG_SIZE; i++) {
     send_buffer[i] = i;
@@ -115,6 +130,16 @@ int main(int argc, char** argv) {
       printf("Verified done.. %d-th msg\n", i);
     }
     printf("RANK %d: Received msg\n", rank);
+
+    //! Copy to GPU.
+    int* gpu_buffer;
+    cudaMalloc((void **)&gpu_buffer, sizeof(int)*MSG_SIZE);
+    cudaMemcpy(gpu_buffer, buffer, sizeof(int)*MSG_SIZE, cudaMemcpyHostToDevice);
+    printf("RANK %d: Verify the copied data from cpu to gpu..\n", rank);
+    reduce = 0;
+    verifyGPUBuffers<<<1,1>>>(gpu_buffer, &reduce);
+    printf("RANK %d: All jobs are done\n", rank);
+    cudaDeviceSynchronize();
   }
 
   MPI_Finalize();

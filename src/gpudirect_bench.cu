@@ -10,7 +10,7 @@
 #define NODES      2
 
 #ifdef ENABLE_MULTI_MSG
-#define MAX_COMM   3000
+#define MAX_COMM   300
 #else
 #define MAX_COMM   1
 #endif
@@ -49,12 +49,26 @@ __global__ void verifyRecvedBuffers(int *send_buffer,
   }
 }
 
+void verifyCPUBuffers(int *send_buffer, int *reduce) {
+  for (int i = 0; i < MSG_SIZE; i++) {
+    if (send_buffer[i] != i) {
+      printf("%d is failed to verified; %d\n", i, send_buffer[i]);
+      *reduce += 1;
+      break;
+    }
+  }
+
+  if (*reduce > 0) {
+    printf("verifying failed\n");
+  }
+}
+
+
 int main(int argc, char** argv) {
   int rank, p;
   int *buffer;
   int supportProvided;
 
-  cudaSetDevice(0);
   MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &supportProvided);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   MPI_Comm_size(MPI_COMM_WORLD, &p);
@@ -116,9 +130,32 @@ int main(int argc, char** argv) {
       printf("Verified done.. %d-th msg\n", i);
     }
     printf("RANK %d: Received msg\n", rank);
+
+    int* cpu_buffer;
+    int cpu_reduce = 0;
+    cpu_buffer = (int *) malloc(sizeof(int)*MSG_SIZE);
+    printf("RANK %d: Try to copy data from gpu to cpu..\n", rank);
+    cudaMemcpy(cpu_buffer, buffer, sizeof(int)*MSG_SIZE, cudaMemcpyDeviceToHost);
+    printf("RANK %d: Verify the copied data from gpu to cpu..\n", rank);
+    verifyCPUBuffers(cpu_buffer, &cpu_reduce);
+    printf("RANK %d: All jobs are done\n", rank);
+
+    cudaDeviceSynchronize();
+    //! Copy to GPU 2.
+    int* gpu_buffer;
+    //cudaSetDevice(2);
+    cudaMalloc((void **) &gpu_buffer, sizeof(int)*MSG_SIZE);
+    cudaMemcpy(gpu_buffer, buffer, sizeof(int)*MSG_SIZE, cudaMemcpyDeviceToDevice);
+    printf("RANK %d: Verify the copied data from gpu to gpu..\n", rank);
+    cudaMemset(reduce, 0, sizeof(int));
+    verifyRecvedBuffers<<<1, 1>>>(gpu_buffer, reduce);
+    printf("RANK %d: gpu-gpu-copy verifying is done\n", rank);
+
+    cudaDeviceSynchronize();
   }
 
   MPI_Finalize();
+  //cudaSetDevice(0);
   cudaFree(buffer);
   return 0;
 }
