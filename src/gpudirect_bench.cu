@@ -94,17 +94,14 @@ void run(int *buffer, int rank) {
         MPI_Status stat;
 #endif
 #if (COMM_MODE == BLOCKING_COMM_MODE)
-        std::cout << "Blocking Mode sending..\n";
         MPI_Send(buffer, MSG_SIZE, MPI_INT,
-                 neigh, 0, MPI_COMM_WORLD);
+                 neigh, i, MPI_COMM_WORLD);
 #elif (COMM_MODE == NONBLOCKING_COMM_MODE)
-        std::cout << "Non-Blocking Mode sending..\n";
         MPI_Isend(buffer, MSG_SIZE, MPI_INT,
-                  neigh, 0, MPI_COMM_WORLD, &req);
+                  neigh, i, MPI_COMM_WORLD, &req);
 #elif (COMM_MODE == NONBLOCKING_SYNC_COMM_MODE)
-        std::cout << "Non-Blocking synchronous Mode sending..\n";
         MPI_Issend(buffer, MSG_SIZE, MPI_INT,
-                   neigh, 0, MPI_COMM_WORLD, &req);
+                   neigh, i, MPI_COMM_WORLD, &req);
 #endif
         printf("RANK 0: Sending msg %d-th to %d: done\n", i, neigh);
 #if (COMM_MODE != BLOCKING_COMM_MODE)
@@ -128,12 +125,12 @@ void run(int *buffer, int rank) {
       printf("RANK %d: Tries to recv %d-th msg (size: %d)\n", rank, i, MSG_SIZE);
 #if COMM_MODE == BLOCKING_COMM_MODE
       MPI_Recv(buffer, MSG_SIZE, MPI_INT, 0,
-               0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+               MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 #else
       MPI_Request req;
       MPI_Status stat;
       MPI_Irecv(buffer, MSG_SIZE, MPI_INT, 0,
-                0, MPI_COMM_WORLD, &req); 
+                MPI_ANY_TAG, MPI_COMM_WORLD, &req); 
       MPI_Wait(&req, &stat);
 #endif
 
