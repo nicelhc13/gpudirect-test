@@ -21,19 +21,14 @@
 #define MSG_SIZE   100     //! 25xINT
 #endif
 
-__global__ void initializeBuffers(int *send_buffer) {
-  for (int i = 0; i < MSG_SIZE; i++) {
-    send_buffer[i] = i;
-  }
-}
+#define BLOCKING_COMM_MODE 0
+#define NONBLOCKING_COMM_MODE 1
+#define NONBLOCKING_SYNC_COMM_MODE 2
 
-__global__ void printBuffer(int *buffer) {
-  for (int i = 0; i < MSG_SIZE; i++) {
-    printf("\tbuffer[%d] = %d ", i, buffer[i]);
-  }
-  printf("\n");
-}
-
+/**
+ * Verify both gpu and cpu buffers.
+ * Each element is initialized with the corresponding index.
+ */
 __global__ void verifyRecvedBuffers(int *send_buffer,
                                     int *reduce) {
   for (int i = 0; i < MSG_SIZE; i++) {
@@ -63,28 +58,22 @@ void verifyCPUBuffers(int *send_buffer, int *reduce) {
   }
 }
 
+//! Initialize buffer. Each element is initialized with its index.
+__global__ void initializeBuffers(int *send_buffer) {
+  for (int i = 0; i < MSG_SIZE; i++) {
+    send_buffer[i] = i;
+  }
+}
 
-int main(int argc, char** argv) {
-  int rank, p;
-  int *buffer;
-  int supportProvided;
+//! Print buffer.
+__global__ void printBuffer(int *buffer) {
+  for (int i = 0; i < MSG_SIZE; i++) {
+    printf("\tbuffer[%d] = %d ", i, buffer[i]);
+  }
+  printf("\n");
+}
 
-  MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &supportProvided);
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  MPI_Comm_size(MPI_COMM_WORLD, &p);
-
-  printf("Welcome to MPI world. %d out of %d processors\n",
-         rank, p);
-  printf("Number of nodes: %d, Number of msgs: %d,"
-         "Msg size: %d\n", NODES, MAX_COMM, MSG_SIZE);
-#ifdef PARALLEL_MSG_MODE
-  omp_set_num_threads(56);
-  printf("Parallel mode is enabled. Used number of threads is 56\n");
-#endif
-
-  //! Initialize buffers.
-  cudaMalloc((void **) &buffer, MSG_SIZE*sizeof(int));
-
+void run(int *buffer, int rank) {
   if (rank == 0) { ///< Rank0 node.
     printf("RANK 0: Initialize msg..\n");
     initializeBuffers<<<1, 1>>>(buffer);
@@ -100,9 +89,27 @@ int main(int argc, char** argv) {
 #endif
       for (int i = 0; i < MAX_COMM; i++) {
         printf("RANK 0: Sending msg %d-th\n", i);
+#if (COMM_MODE != BLOCKING_COMM_MODE)
+        MPI_Request req;
+        MPI_Status stat;
+#endif
+#if (COMM_MODE == BLOCKING_COMM_MODE)
+        std::cout << "Blocking Mode sending..\n";
         MPI_Send(buffer, MSG_SIZE, MPI_INT,
                  neigh, 0, MPI_COMM_WORLD);
+#elif (COMM_MODE == NONBLOCKING_COMM_MODE)
+        std::cout << "Non-Blocking Mode sending..\n";
+        MPI_Isend(buffer, MSG_SIZE, MPI_INT,
+                  neigh, 0, MPI_COMM_WORLD, &req);
+#elif (COMM_MODE == NONBLOCKING_SYNC_COMM_MODE)
+        std::cout << "Non-Blocking synchronous Mode sending..\n";
+        MPI_Issend(buffer, MSG_SIZE, MPI_INT,
+                   neigh, 0, MPI_COMM_WORLD, &req);
+#endif
         printf("RANK 0: Sending msg %d-th to %d: done\n", i, neigh);
+#if (COMM_MODE != BLOCKING_COMM_MODE)
+        MPI_Wait(&req, &stat); 
+#endif
       }
     }
     printf("RANK 0: Rank 0 is done\n");
@@ -119,8 +126,17 @@ int main(int argc, char** argv) {
     for (int i = 0; i < MAX_COMM; i++) {
       cudaMemset(reduce, 0, sizeof(int));
       printf("RANK %d: Tries to recv %d-th msg (size: %d)\n", rank, i, MSG_SIZE);
+#if COMM_MODE == BLOCKING_COMM_MODE
       MPI_Recv(buffer, MSG_SIZE, MPI_INT, 0,
                0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+#else
+      MPI_Request req;
+      MPI_Status stat;
+      MPI_Irecv(buffer, MSG_SIZE, MPI_INT, 0,
+                0, MPI_COMM_WORLD, &req); 
+      MPI_Wait(&req, &stat);
+#endif
+
 #ifdef PRINT_BUFFER
       printf("RANK %d: Print recv %d-th msg\n", rank, i);
       printBuffer<<<1, 1>>>(buffer);
@@ -153,9 +169,32 @@ int main(int argc, char** argv) {
 
     cudaDeviceSynchronize();
   }
+}
+
+int main(int argc, char** argv) {
+  int rank, p;
+  int *buffer;
+  int supportProvided;
+
+  MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &supportProvided);
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  MPI_Comm_size(MPI_COMM_WORLD, &p);
+
+  printf("Welcome to MPI world. %d out of %d processors\n",
+         rank, p);
+  printf("Number of nodes: %d, Number of msgs: %d,"
+         "Msg size: %d\n", NODES, MAX_COMM, MSG_SIZE);
+#ifdef PARALLEL_MSG_MODE
+  omp_set_num_threads(56);
+  printf("Parallel mode is enabled. Used number of threads is 56\n");
+#endif
+
+  //! Initialize buffers.
+  cudaMalloc((void **) &buffer, MSG_SIZE*sizeof(int));
+
+  run(buffer, rank);
 
   MPI_Finalize();
-  //cudaSetDevice(0);
   cudaFree(buffer);
   return 0;
 }

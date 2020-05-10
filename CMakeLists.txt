@@ -11,6 +11,8 @@ set(ENABLE_PARALLLEL OFF CACHE BOOL "Enable parallel communications")
 set(USE_ICOMM OFF CACHE BOOL "Enable non-blocking MPI communication")
 set(USE_ISCOMM OFF CACHE BOOL "Enable non-blocking synchronous MPI sending")
 set(CUDA_CAPABILITY "6.0" CACHE BOOL "Cuda capability: default 6.0")
+set(COMM_MODE "B" CACHE BOOL "MPI communication mode: default B (Blocking),
+                  possible optiosn - NB (Non-blocking) NBS (Non-blocking synchronous)")
 
 file(GLOB SRC
     "src/*.h"
@@ -67,5 +69,17 @@ endif()
 if (ENABLE_PARALLLEL)
   add_compile_definitions(PARALLEL_MSG_MODE)
 endif()
+
+if (COMM_MODE STREQUAL "B")
+  message("Blocking mode ..")
+  add_definitions(-DCOMM_MODE=0)
+elseif(COMM_MODE STREQUAL "NB")
+  message("Non-blocking mode ..")
+  add_definitions(-DCOMM_MODE=1)
+else(COMM_MODE STREQUAL "NBS")
+  message("Non-blocking synchronous mode ..")
+  add_definitions(-DCOMM_MODE=2)
+endif()
+
 
 remove_definitions(-fexceptions)
