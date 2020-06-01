@@ -7,6 +7,7 @@
 #include <cuda_profiler_api.h>
 #include <omp.h>
 #include "mpi.h"
+#include "timer.h"
 
 #define NODES      2
 
@@ -93,6 +94,7 @@ void run(int *buffer, int rank) {
         MPI_Request req;
         MPI_Status stat;
 #endif
+        startTimer();
 #if (COMM_MODE == BLOCKING_COMM_MODE)
         MPI_Send(buffer, MSG_SIZE, MPI_INT,
                  neigh, i, MPI_COMM_WORLD);
@@ -107,6 +109,7 @@ void run(int *buffer, int rank) {
 #if (COMM_MODE != BLOCKING_COMM_MODE)
         MPI_Wait(&req, &stat); 
 #endif
+        stopTimer();
       }
     }
     printf("RANK 0: Rank 0 is done\n");
@@ -122,6 +125,7 @@ void run(int *buffer, int rank) {
     for (int i = 0; i < MAX_COMM; i++) {
       reduce = 0;
       printf("RANK %d: Tries to recv %d-th msg (size: %d)\n", rank, i, MSG_SIZE);
+      startTimer();
 #if COMM_MODE == BLOCKING_COMM_MODE
       MPI_Recv(buffer, MSG_SIZE, MPI_INT, 0,
                MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
@@ -132,6 +136,7 @@ void run(int *buffer, int rank) {
                 MPI_ANY_TAG, MPI_COMM_WORLD, &req); 
       MPI_Wait(&req, &stat);
 #endif
+      stopTimer();
 
 #ifdef PRINT_BUFFER
       printf("RANK %d: Print recv %d-th msg\n", rank, i);
@@ -153,6 +158,9 @@ void run(int *buffer, int rank) {
     printf("RANK %d: All jobs are done\n", rank);
     cudaDeviceSynchronize();
   }
+
+  double elapsedTime = getTimer();
+  printf("Elapsed time: %lf\n", elapsedTime); 
 }
 
 int main(int argc, char** argv) {
