@@ -11,7 +11,7 @@
 #define NODES      2
 
 #ifdef ENABLE_MULTI_MSG
-#define MAX_COMM   3000
+#define MAX_COMM   300
 #else
 #define MAX_COMM   1
 #endif
@@ -75,6 +75,21 @@ __global__ void printBuffer(int *buffer) {
 }
 
 void run(int *buffer, int rank) {
+#ifdef _SET_DEVICE_MODE_
+  int count = 1;
+  cudaGetDeviceCount(&count);
+  int gpuID = rank % count;
+  cudaSetDevice(gpuID);
+  std::cout << "Rank " << rank << " chooses GPU[" << gpuID << "]\n";
+#endif
+
+  //! Initialize buffers.
+  cudaMalloc((void **) &buffer, MSG_SIZE*sizeof(int));
+#ifdef  _CPU_BUFFER_MODE_
+  int *cpuTempBuffer;
+  cpuTempBuffer = (int *) malloc (MSG_SIZE*sizeof(int));
+  std::cout << "CPU mode is enabled ****\n";
+#endif
   if (rank == 0) { ///< Rank0 node.
     printf("RANK 0: Initialize msg..\n");
     initializeBuffers<<<1, 1>>>(buffer);
@@ -94,17 +109,38 @@ void run(int *buffer, int rank) {
         MPI_Request req;
         MPI_Status stat;
 #endif
+
+#ifdef _CPU_BUFFER_MODE_
+        cudaMemcpy(cpuTempBuffer, buffer, sizeof(int)*MSG_SIZE, cudaMemcpyDeviceToHost);
+  //! Msg type.
+  #if (COMM_MODE == BLOCKING_COMM_MODE)
+        MPI_Send(cpuTempBuffer, MSG_SIZE, MPI_INT,
+                 neigh, i, MPI_COMM_WORLD);
+  #elif (COMM_MODE == NONBLOCKING_COMM_MODE)
+        MPI_Isend(cpuTempBuffer, MSG_SIZE, MPI_INT,
+                  neigh, i, MPI_COMM_WORLD, &req);
+  #elif (COMM_MODE == NONBLOCKING_SYNC_COMM_MODE)
+        MPI_Issend(cpuTempBuffer, MSG_SIZE, MPI_INT,
+                   neigh, i, MPI_COMM_WORLD, &req);
+  #endif
+  //! Msg type done.
+#else ///< CPU BUFFER.
         startTimer();
-#if (COMM_MODE == BLOCKING_COMM_MODE)
+
+  //! Msg type.
+  #if (COMM_MODE == BLOCKING_COMM_MODE)
         MPI_Send(buffer, MSG_SIZE, MPI_INT,
                  neigh, i, MPI_COMM_WORLD);
-#elif (COMM_MODE == NONBLOCKING_COMM_MODE)
+  #elif (COMM_MODE == NONBLOCKING_COMM_MODE)
         MPI_Isend(buffer, MSG_SIZE, MPI_INT,
                   neigh, i, MPI_COMM_WORLD, &req);
-#elif (COMM_MODE == NONBLOCKING_SYNC_COMM_MODE)
+  #elif (COMM_MODE == NONBLOCKING_SYNC_COMM_MODE)
         MPI_Issend(buffer, MSG_SIZE, MPI_INT,
                    neigh, i, MPI_COMM_WORLD, &req);
-#endif
+  #endif
+  //! Msg type done.
+#endif ///< GPU BUFFER
+
         printf("RANK 0: Sending msg %d-th to %d: done\n", i, neigh);
 #if (COMM_MODE != BLOCKING_COMM_MODE)
         MPI_Wait(&req, &stat); 
@@ -116,6 +152,7 @@ void run(int *buffer, int rank) {
   } else { ///< Not rank0 nodes.
     //! Initialize receiver-side buffers.
     cudaMemset(buffer, 0, sizeof(int)*MSG_SIZE);
+    cudaDeviceSynchronize();
 #ifdef PRINT_BUFFER
     printf("RANK %d: Print recv buffer before recving\n", rank, i);
     printBuffer<<<1, 1>>>(buffer);
@@ -125,24 +162,42 @@ void run(int *buffer, int rank) {
     //! Receive the msg one by one.
     for (int i = 0; i < MAX_COMM; i++) {
       cudaMemset(reduce, 0, sizeof(int));
+      cudaDeviceSynchronize();
       printf("RANK %d: Tries to recv %d-th msg (size: %d)\n", rank, i, MSG_SIZE);
       startTimer();
-#if COMM_MODE == BLOCKING_COMM_MODE
+#ifdef _CPU_BUFFER_MODE_ ///< CPU buffer recv.
+  #if COMM_MODE == BLOCKING_COMM_MODE
+      MPI_Recv(cpuTempBuffer, MSG_SIZE, MPI_INT, 0,
+               MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  #else
+      MPI_Request req;
+      MPI_Status stat;
+      MPI_Irecv(cpuTempBuffer, MSG_SIZE, MPI_INT, 0,
+                MPI_ANY_TAG, MPI_COMM_WORLD, &req); 
+      MPI_Wait(&req, &stat);
+  #endif
+#else ///< GPU buffer recv.
+  #if COMM_MODE == BLOCKING_COMM_MODE
+      std::cout << "Blocking mode";
       MPI_Recv(buffer, MSG_SIZE, MPI_INT, 0,
                MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-#else
+  #else
       MPI_Request req;
       MPI_Status stat;
       MPI_Irecv(buffer, MSG_SIZE, MPI_INT, 0,
                 MPI_ANY_TAG, MPI_COMM_WORLD, &req); 
       MPI_Wait(&req, &stat);
-#endif
+  #endif
+#endif ///< Recv done.
       stopTimer();
 #ifdef PRINT_BUFFER
       printf("RANK %d: Print recv %d-th msg\n", rank, i);
       printBuffer<<<1, 1>>>(buffer);
 #endif
       printf("Starts to verifying.. %d-th msg\n", i);
+#ifdef _CPU_BUFFER_MODE_
+      cudaMemcpy(buffer, cpuTempBuffer, sizeof(int)*MSG_SIZE, cudaMemcpyHostToDevice);
+#endif
       verifyRecvedBuffers<<<1, 1>>>(buffer, reduce);
       printf("Verified done.. %d-th msg\n", i);
     }
@@ -165,6 +220,7 @@ void run(int *buffer, int rank) {
     cudaMemcpy(gpu_buffer, buffer, sizeof(int)*MSG_SIZE, cudaMemcpyDeviceToDevice);
     printf("RANK %d: Verify the copied data from gpu to gpu..\n", rank);
     cudaMemset(reduce, 0, sizeof(int));
+    cudaDeviceSynchronize();
     verifyRecvedBuffers<<<1, 1>>>(gpu_buffer, reduce);
     printf("RANK %d: gpu-gpu-copy verifying is done\n", rank);
 
@@ -190,11 +246,19 @@ int main(int argc, char** argv) {
          "Msg size: %d\n", NODES, MAX_COMM, MSG_SIZE);
 #ifdef PARALLEL_MSG_MODE
   omp_set_num_threads(56);
-  printf("Parallel mode is enabled. Used number of threads is 56\n");
+  printf("\t**Parallel mode is enabled. Used number of threads is 56\n");
+#endif
+#ifdef _CPU_BUFFER_MODE_
+  printf("\t**CPU buffer mode is enabled.\n");
+#else
+  printf("\t**GPU buffer mode is enabled.\n");
 #endif
 
-  //! Initialize buffers.
-  cudaMalloc((void **) &buffer, MSG_SIZE*sizeof(int));
+#ifdef _SET_DEVICE_MODE_
+  printf("\t**Setting devices manually is enabled.\n");
+#else
+  printf("\t**Setting devices manually is disabled.\n");
+#endif
 
   run(buffer, rank);
 
