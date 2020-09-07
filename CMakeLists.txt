@@ -21,9 +21,11 @@ file(GLOB SRC
     "src/*.cpp"
     "src/*.cu"
     )
+
 add_executable(gpudirect_test src/gpudirect_bench.cu)
 add_executable(gpudirect_test_cpu src/gpudirect_bench.cu)
 target_compile_definitions(gpudirect_test_cpu PRIVATE _SET_DEVICE_MODE_)
+add_executable(gpudirect_gluonlike src/gpudirect_gluonlike.cu)
 
 add_executable(cpu_test src/cpu_bench.cu)
 #add_executable(cpu_test src/gpudirect_bench.cu)
@@ -34,6 +36,7 @@ if(OPENMP_FOUND)
   add_compile_options("$<$<COMPILE_LANGUAGE:C>:${OpenMP_CXX_FLAGS}>")
   target_link_libraries(gpudirect_test PUBLIC OpenMP::OpenMP_CXX)
   target_link_libraries(gpudirect_test_cpu PUBLIC OpenMP::OpenMP_CXX)
+  target_link_libraries(gpudirect_gluonlike PUBLIC OpenMP::OpenMP_CXX)
   target_link_libraries(cpu_test PUBLIC OpenMP::OpenMP_CXX)
 endif()
 
@@ -50,10 +53,16 @@ target_include_directories(gpudirect_test
                            ${CUDA_INCLUDE_DIRS}
 )
 
+target_include_directories(gpudirect_gluonlike
+                           PUBLIC
+                           ${CUDA_INCLUDE_DIRS}
+)
+
 target_include_directories(gpudirect_test_cpu
                            PUBLIC
                            ${CUDA_INCLUDE_DIRS}
 )
+
 target_include_directories(cpu_test
                            PUBLIC
                            ${CUDA_INCLUDE_DIRS}
@@ -68,6 +77,9 @@ target_include_directories(gpudirect_test_cpu PUBLIC ${MPI_CXX_INCLUDE_PATH})
 target_compile_options(gpudirect_test_cpu PUBLIC ${MPI_CXX_COMPILE_FLAGS})
 target_link_libraries(gpudirect_test_cpu PUBLIC ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS})
 
+target_include_directories(gpudirect_gluonlike PUBLIC ${MPI_CXX_INCLUDE_PATH})
+target_compile_options(gpudirect_gluonlike PUBLIC ${MPI_CXX_COMPILE_FLAGS})
+target_link_libraries(gpudirect_gluonlike PUBLIC ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS})
 
 target_include_directories(cpu_test PUBLIC ${MPI_CXX_INCLUDE_PATH})
 target_compile_options(cpu_test PUBLIC ${MPI_CXX_COMPILE_FLAGS})
